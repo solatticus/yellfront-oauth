@@ -40,8 +40,8 @@ PORT=3847
 DEFAULT_RETURN_URL=https://flut.live/dashboard
 "@
 
-# Push to relay and restart
-$envContent | ssh relay "sudo tee /opt/yellfront-oauth/.env > /dev/null && sudo chmod 600 /opt/yellfront-oauth/.env && sudo chown www-data:www-data /opt/yellfront-oauth/.env"
+# Push to relay: pull latest code, update .env, restart
+$envContent | ssh relay "cd /opt/yellfront-oauth && sudo git pull && sudo tee .env > /dev/null && sudo chmod 600 .env && sudo chown www-data:www-data .env"
 
 if ($LASTEXITCODE -eq 0) {
     ssh relay "sudo systemctl restart yellfront"
