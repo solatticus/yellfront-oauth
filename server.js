@@ -8,6 +8,9 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const PORT = process.env.PORT || 3847;
 
+// Trust nginx proxy (for rate limiting to see real IPs)
+app.set('trust proxy', 1);
+
 // Security headers
 app.use(helmet());
 
