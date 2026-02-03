@@ -64,19 +64,25 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.profile',
 ];
 
+// Fortress backend (Mr-Build)
+const FORTRESS_URL = process.env.FORTRESS_URL || 'http://10.10.0.4:3000';
+
 // Health check
 app.get('/precombopulator/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Start OAuth flow - generates auth URL with CSRF state
+// Pass ?fortress_session=<session_id> to link tokens to Fortress user session
 app.get('/precombopulator/auth', authLimiter, (req, res) => {
   const state = uuidv4();
   const returnUrl = req.query.return_url || process.env.DEFAULT_RETURN_URL || '/';
+  const fortressSession = req.query.fortress_session || null;
 
   pendingStates.set(state, {
     created: Date.now(),
     returnUrl,
+    fortressSession,
     ip: req.ip,
   });
 
@@ -133,8 +139,34 @@ app.get('/precombopulator/yellfront', authLimiter, async (req, res) => {
       hasRefreshToken: !!tokens.refresh_token,
     });
 
-    // TODO: Store tokens in your database keyed by user email
-    // For now, we'll return them (in production, redirect to dashboard with session)
+    // POST tokens to Fortress if session provided
+    if (pendingState.fortressSession) {
+      try {
+        const fortressRes = await fetch(`${FORTRESS_URL}/api/oauth/receive`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: pendingState.fortressSession,
+            provider: 'google',
+            email: userInfo.email,
+            name: userInfo.name,
+            picture: userInfo.picture,
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expiry_date: tokens.expiry_date,
+            scopes: SCOPES,
+          }),
+        });
+
+        if (!fortressRes.ok) {
+          console.error('Fortress token delivery failed:', await fortressRes.text());
+        } else {
+          console.log('Tokens delivered to Fortress for session:', pendingState.fortressSession);
+        }
+      } catch (err) {
+        console.error('Failed to deliver tokens to Fortress:', err.message);
+      }
+    }
 
     // Option 1: Return JSON (for API testing)
     if (req.query.format === 'json') {
@@ -153,10 +185,10 @@ app.get('/precombopulator/yellfront', authLimiter, async (req, res) => {
       });
     }
 
-    // Option 2: Redirect to dashboard with success indicator
+    // Option 2: Redirect to return URL
     const returnUrl = pendingState.returnUrl || '/';
     const separator = returnUrl.includes('?') ? '&' : '?';
-    res.redirect(`${returnUrl}${separator}auth=success&email=${encodeURIComponent(userInfo.email)}`);
+    res.redirect(`${returnUrl}${separator}oauth=success&provider=google&email=${encodeURIComponent(userInfo.email)}`);
 
   } catch (err) {
     console.error('Token exchange failed:', err.message);
